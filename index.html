@@ -423,12 +423,15 @@ function kisa(d){ return d.getDate()+" "+AYLAR[d.getMonth()].slice(0,3); }
 
 const NOW = new Date();
 const TODAY = iso(NOW);
-/* ilk açılış: Pzt-Per arası açıldıysa bu hafta, Cuma-Pazar ise gelecek pazartesi başlar */
+/* program 10 Ekim 2026 cumartesi başladı; hafta ve gün sırası bu tarihten sayılır, takvim haftasından değil */
+const DEFAULT_START = "2026-10-10";
 if (!S.start){
-  S.start = iso(dayIdx(NOW) >= 4 ? addDays(mondayOf(NOW), 7) : mondayOf(NOW));
-  S.body = [{ d: TODAY, kg: 65, bel: null }];
+  S.start = DEFAULT_START;
+  S.body = [{ d: DEFAULT_START, kg: 65, bel: null }];
   save();
 }
+/* eski sürüm 12 Ekim pazartesiyi yazmıştı; hiç kayıt yoksa yeni başlangıca taşı */
+if (S.start === "2026-10-12" && !Object.keys(S.log).length){ S.start = DEFAULT_START; save(); }
 let viewDate = parseIso(TODAY) < parseIso(S.start) ? parseIso(S.start) : parseIso(TODAY);
 
 function weekInfo(d){
@@ -436,6 +439,10 @@ function weekInfo(d){
   const w = Math.max(0, n);
   return { before: n < 0, abs: w, wk: w % 4, cycle: Math.floor(w/4) + 1 };
 }
+/* programın kaçıncı günü (0 = Salon A günü) */
+function planIdx(d){ return ((diffDays(parseIso(S.start), d) % 7) + 7) % 7; }
+function weekStart(d){ return addDays(parseIso(S.start), weekInfo(d).abs * 7); }
+function planDayName(i){ return GUNLER[dayIdx(addDays(parseIso(S.start), i))]; }
 
 /* ============ program ============ */
 const WEEKS = [
@@ -598,7 +605,7 @@ function cardioText(id, wk){
 
 /* gün planı: başlık + işaretlenecek öğeler */
 function dayPlan(d){
-  const p = PLAN[dayIdx(d)], wk = weekInfo(d).wk, W = WEEKS[wk];
+  const p = PLAN[planIdx(d)], wk = weekInfo(d).wk, W = WEEKS[wk];
   if (p.t === "gym"){
     const w = WORKOUTS[p.w];
     return { kind:"gym", w:p.w, k:"Salon günü", title:w.ad+" · "+w.alt, short:w.alt, sure:w.sure,
@@ -670,7 +677,7 @@ let libFilter = S.lib || "all";
 function renderTop(){
   const d = parseIso(TODAY), wi = weekInfo(d);
   $("#topDate").textContent = uzun(d);
-  if (wi.before){ $("#wkN").textContent = "Pzt"; $("#wkL").textContent = "başlıyor"; }
+  if (wi.before){ $("#wkN").textContent = GUN_K[dayIdx(parseIso(S.start))]; $("#wkL").textContent = "başlıyor"; }
   else { $("#wkN").textContent = "Hafta "+(wi.wk+1); $("#wkL").textContent = WEEKS[wi.wk].ad+" · Döngü "+wi.cycle; }
   document.querySelectorAll(".tab").forEach(t => t.setAttribute("aria-selected", t.dataset.tab === S.tab ? "true" : "false"));
 }
@@ -737,7 +744,7 @@ function renderBugun(){
 }
 
 function renderHafta(){
-  const mon = mondayOf(viewDate), wi = weekInfo(mon);
+  const mon = weekStart(viewDate), wi = weekInfo(mon);
   let h = '<div class="sec-head"><h2>Bu hafta</h2><span class="eyebrow">Hafta '+(wi.wk+1)+' · '+WEEKS[wi.wk].ad+'</span></div>'+
     '<p class="sec-intro">3 salon günü arasında birer gün boşluk var; kaslar o arada toparlanıyor. Bir günü kaçırırsan ertesi güne kaydır, ama alt vücut gününü (A) iki gün üst üste yapma.</p>';
   h += '<ol class="weekgrid">';
@@ -748,7 +755,7 @@ function renderHafta(){
     else if (pr.r >= 1) chip = '<span class="chip chip--done">tamam</span>';
     else if (pr.r > 0) chip = '<span class="chip chip--part">'+pr.done+'/'+pr.total+'</span>';
     else chip = '<span class="chip">'+(k < TODAY ? 'yapılmadı' : 'sırada')+'</span>';
-    h += '<li><button class="wday'+(k===TODAY?' is-today':'')+'" data-act="goto" data-k="'+k+'"><span class="wday__d">'+GUNLER[i]+'<small class="num">'+kisa(d)+'</small></span>'+
+    h += '<li><button class="wday'+(k===TODAY?' is-today':'')+'" data-act="goto" data-k="'+k+'"><span class="wday__d">'+GUNLER[dayIdx(d)]+'<small class="num">'+kisa(d)+'</small></span>'+
       '<span class="wday__p"><b>'+esc(P.k)+'</b> · '+esc(P.short)+(P.sure ? ' · '+P.sure : '')+'</span>'+chip+'</button></li>';
   }
   h += '</ol>';
@@ -798,11 +805,11 @@ const REF = [
 ];
 
 function renderReformer(){
-  let h = '<div class="sec-head"><h2>Reformer pilates</h2><span class="eyebrow">Salı · Cumartesi</span></div>'+
+  let h = '<div class="sec-head"><h2>Reformer pilates</h2><span class="eyebrow">'+planDayName(1)+' · '+planDayName(5)+'</span></div>'+
     '<p class="sec-intro">Reformer dersini eğitmen yönetir. Bu sayfa derste ne yapıldığını anlaman, doğru yayı seçmen ve eğitmene ne söyleyeceğini bilmen için.</p>';
   h += '<div class="callout"><span class="eyebrow">İlk derste eğitmene söyle</span>'+
-    '<q>Hedefim kilo vermek. Haftada üç gün salonda ağırlık yapıyorum: pazartesi bacak, çarşamba üst vücut, cuma tüm vücut. Varsa tempolu ya da jumpboard’lu dersleri tercih ederim.</q>'+
-    '<p class="note" style="margin-top:0">Bir yerin ağrıyorsa ya da eski bir sakatlığın varsa ilk derste mutlaka söyle. Salı dersi pazartesi bacak gününden sonra geldiği için bacaklar yorgunsa yayı bir kademe hafiflet.</p></div>';
+    '<q>Hedefim kilo vermek. Haftada üç gün salonda ağırlık yapıyorum: '+planDayName(0).toLocaleLowerCase("tr")+' bacak, '+planDayName(2).toLocaleLowerCase("tr")+' üst vücut, '+planDayName(4).toLocaleLowerCase("tr")+' tüm vücut. Varsa tempolu ya da jumpboard’lu dersleri tercih ederim.</q>'+
+    '<p class="note" style="margin-top:0">Bir yerin ağrıyorsa ya da eski bir sakatlığın varsa ilk derste mutlaka söyle. '+planDayName(1)+' dersi bacak gününün ertesine denk geldiği için bacaklar yorgunsa yayı bir kademe hafiflet. Stüdyonun o gün dersi yoksa reformer’ı yakın bir güne al; iki salon gününün arasına koymak en iyisi.</p></div>';
 
   h += '<div class="block"><h3 class="subhead">Yay ayarı</h3><p class="sec-intro" style="margin-bottom:var(--s3)">Yay renkleri markaya göre değişir; birinde kırmızı ağır, diğerinde mavi ağır olabilir. İlk derste stüdyonun renklerini eğitmenden öğren. Kural şu: <b>bacak hareketlerinde yay ağır, kol ve karın hareketlerinde hafif</b>. Reformer’da daha ağır yay her zaman daha zor demek değil; plank ve karın hareketlerinde hafif yay daha zordur çünkü dengeyi sen sağlarsın.</p>'+
     '<div class="springs">'+
@@ -824,7 +831,7 @@ function renderIlerleme(){
   const B = S.body.slice().sort((a,b) => a.d < b.d ? -1 : 1);
   const first = B[0], last = B[B.length-1];
   let total = 0, thisWeek = 0;
-  const mon = iso(mondayOf(parseIso(TODAY)));
+  const mon = iso(weekStart(parseIso(TODAY)));
   Object.keys(S.log).forEach(k => {
     const d = parseIso(k), P = dayPlan(d);
     if (P.rest) return;
@@ -915,10 +922,10 @@ function renderUsul(){
     '</div>';
 
   h += '<div class="block"><h3 class="subhead">Ayarlar</h3><div class="settings">'+
-    '<div class="field"><label for="startIn">Başlangıç pazartesisi</label><input id="startIn" type="date" value="'+S.start+'" data-act="start" style="width:170px"></div>'+
+    '<div class="field"><label for="startIn">Başlangıç günü</label><input id="startIn" type="date" value="'+S.start+'" data-act="start" style="width:170px"></div>'+
     '<button class="btn '+(resetArmed?'btn--danger':'btn--ghost')+'" data-act="reset">'+(resetArmed ? 'Eminim, tüm kayıtları sil' : 'Kayıtları sıfırla')+'</button>'+
     (resetArmed ? '<button class="btn btn--ghost" data-act="resetno">Vazgeç</button>' : '')+'</div>'+
-    '<p class="note">Seçtiğin tarih pazartesi değilse o haftanın pazartesine çekilir. Kayıtlar yalnızca bu telefonun tarayıcısında durur; tarayıcı verisini silersen gider.'+(storageOk ? '' : ' <b>Şu an tarayıcı kayda izin vermiyor, sayfa kapanınca işaretler kaybolur.</b>')+'</p></div>';
+    '<p class="note">Program bu günden başlar: ilk gün Salon A, haftalar da bu günden sayılır. Kayıtlar yalnızca bu telefonun tarayıcısında durur; tarayıcı verisini silersen gider.'+(storageOk ? '' : ' <b>Şu an tarayıcı kayda izin vermiyor, sayfa kapanınca işaretler kaybolur.</b>')+'</p></div>';
   return h;
 }
 
@@ -967,7 +974,7 @@ document.addEventListener("change", ev => {
   } else if (a === "adim"){
     const lg = L(iso(viewDate)); lg.adim = t.value ? Math.max(0, Math.round(Number(t.value))) : null; save(); keepScroll(render);
   } else if (a === "start" && t.value){
-    S.start = iso(mondayOf(parseIso(t.value))); save(); render();
+    S.start = t.value; save(); render();
   }
 });
 document.addEventListener("submit", ev => {
